@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Control de luz · ESP32</title>
+<style>
+  :root{
+    --bg: #12151B;
+    --panel: #1B2028;
+    --panel-raised: #20262F;
+    --border: #2B313C;
+    --text: #E7E5E0;
+    --text-dim: #8B93A1;
+    --auto: #3FA796;
+    --auto-dim: rgba(63,167,150,0.15);
+    --manual: #F2A93B;
+    --manual-dim: rgba(242,169,59,0.15);
+    --on: #56C271;
+    --off: #4A505C;
+  }
+  *{ box-sizing: border-box; }
+  html, body{ height: 100%; }
+  body{
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+
+  .panel{
+    width: 100%;
+    max-width: 400px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 28px;
+  }
+
+  .panel-header{
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 24px;
+  }
+  .panel-header h1{
+    font-size: 19px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+  .pilot{
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--off);
+    box-shadow: none;
+    transition: background 0.25s ease, box-shadow 0.25s ease;
+  }
+  .pilot.lit{
+    background: var(--on);
+    box-shadow: 0 0 8px 1px rgba(86,194,113,0.55);
+  }
+
+  .segmented{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .segmented button{
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--panel-raised);
+    color: var(--text-dim);
+    font-size: 14px;
+    font-weight: 600;
+    padding: 12px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .segmented button:hover{ border-color: #3A4150; }
+  .segmented button.active-auto{
+    background: var(--auto-dim);
+    border-color: var(--auto);
+    color: var(--auto);
+  }
+  .segmented button.active-manual{
+    background: var(--manual-dim);
+    border-color: var(--manual);
+    color: var(--manual);
+  }
+
+  .manual-controls{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 20px;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: max-height 0.2s ease, opacity 0.2s ease, margin 0.2s ease;
+  }
+  .manual-controls.visible{
+    max-height: 80px;
+    opacity: 1;
+  }
+  .manual-controls button{
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--panel-raised);
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+    padding: 14px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  #btnOn:hover{ border-color: var(--on); color: var(--on); }
+  #btnOff:hover{ border-color: #D9737A; color: #D9737A; }
+  .manual-controls button.pressed-on{ border-color: var(--on); color: var(--on); background: rgba(86,194,113,0.1); }
+  .manual-controls button.pressed-off{ border-color: #D9737A; color: #D9737A; background: rgba(217,115,122,0.1); }
+
+  .telemetry{
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+  .row{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12.5px;
+  }
+  .row .label{
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+  }
+  .row .value{
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+    font-size: 13px;
+  }
+  .row .value.on{ color: var(--on); }
+  .row .value.off{ color: var(--text-dim); }
+
+  .hint{
+    margin-top: 18px;
+    font-size: 11.5px;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+
+<div class="panel">
+  <div class="panel-header">
+    <h1>Control de luz</h1>
+    <div class="pilot" id="pilot"></div>
+  </div>
+
+  <div class="segmented">
+    <button id="btnAuto" onclick="setModo('automatico')">Automático</button>
+    <button id="btnManual" onclick="setModo('manual')">Manual</button>
+  </div>
+
+  <div class="manual-controls" id="manualControls">
+    <button id="btnOn" onclick="setRele('on')">Encender</button>
+    <button id="btnOff" onclick="setRele('off')">Apagar</button>
+  </div>
+
+  <div class="telemetry">
+    <div class="row"><span class="label">Luz (ADC)</span><span class="value" id="tLuz">—</span></div>
+    <div class="row"><span class="label">Relé</span><span class="value" id="tRele">—</span></div>
+    <div class="row"><span class="label">Modo activo</span><span class="value" id="tModo">—</span></div>
+    <div class="row"><span class="label">Último reporte</span><span class="value" id="tUltimo">—</span></div>
+  </div>
+
+  <p class="hint">En modo automático, el ESP32 decide según su fotoresistencia. En modo manual, decide lo que elijas aquí.</p>
+</div>
+
+<script>
+let estadoActual = null;
+
+async function cargarEstado(){
+  try{
+    const res = await fetch('/api/estado');
+    const data = await res.json();
+    estadoActual = data;
+    render(data);
+  }catch(e){
+    console.error('No se pudo consultar el estado', e);
+  }
+}
+
+async function setModo(modo){
+  const res = await fetch('/api/modo', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ modo })
+  });
+  const data = await res.json();
+  estadoActual = data;
+  render(data);
+}
+
+async function setRele(rele){
+  const res = await fetch('/api/rele', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ rele })
+  });
+  const data = await res.json();
+  estadoActual = data;
+  render(data);
+}
+
+function render(data){
+  const btnAuto = document.getElementById('btnAuto');
+  const btnManual = document.getElementById('btnManual');
+  const manualControls = document.getElementById('manualControls');
+  const btnOn = document.getElementById('btnOn');
+  const btnOff = document.getElementById('btnOff');
+  const pilot = document.getElementById('pilot');
+
+  btnAuto.className = data.modo === 'automatico' ? 'active-auto' : '';
+  btnManual.className = data.modo === 'manual' ? 'active-manual' : '';
+  manualControls.classList.toggle('visible', data.modo === 'manual');
+
+  btnOn.className = data.rele === 'on' ? 'pressed-on' : '';
+  btnOff.className = data.rele === 'off' ? 'pressed-off' : '';
+
+  document.getElementById('tLuz').textContent = data.luz ?? '—';
+
+  const releReal = data.releReal ?? 'off';
+  const tRele = document.getElementById('tRele');
+  tRele.textContent = releReal === 'on' ? 'ON' : 'OFF';
+  tRele.className = 'value ' + (releReal === 'on' ? 'on' : 'off');
+  pilot.classList.toggle('lit', releReal === 'on');
+
+  document.getElementById('tModo').textContent = data.modo === 'automatico' ? 'AUTOMÁTICO' : 'MANUAL';
+
+  const tUltimo = document.getElementById('tUltimo');
+  if (data.ultimaConexion){
+    const segs = Math.round((Date.now() - new Date(data.ultimaConexion).getTime()) / 1000);
+    tUltimo.textContent = segs < 60 ? `hace ${segs}s` : `hace ${Math.round(segs/60)} min`;
+  } else {
+    tUltimo.textContent = 'sin datos aún';
+  }
+}
+
+cargarEstado();
+setInterval(cargarEstado, 3000);
+</script>
+
+</body>
+</html>

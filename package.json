@@ -1,0 +1,15 @@
+{
+  "name": "esp32-control",
+  "version": "1.0.0",
+  "description": "Servidor de control remoto para un relé conectado a un ESP32, con modo automático (fotoresistencia) y manual",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
